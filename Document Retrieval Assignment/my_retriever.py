@@ -2,70 +2,118 @@
 The retriever of Document Retrieval System
 """
 
+from collections import Counter
+from operator import itemgetter
 import math
 
 
 class Retrieve:
+    """
+    The class for Retriever
+    """
+
     # Create new Retrieve object storing index and termWeighting scheme
     def __init__(self, index, term_weighting):
         self.index = index
         self.term_weighting = term_weighting
 
-        self.total_doc = max([doc for value in self.index.values() for doc in value])
-        self.doc_freq = {term: len([doc_freq for doc_freq in self.index[term]]) for term in self.index}
-        self.inv_doc_freq = {term: math.log10(self.total_doc / self.doc_freq[term]) for term in self.index}
-        self.doc_vec_size = {doc: (([self.calculate_tf_idf(doc, term) ** 2
-                                                 for term in self.index
-                                                 if doc in [term_doc for term_doc in self.index[term]]]))
+        # The total number of documents in the collection |D|
+        self.total_doc = max([doc for value in index.values()
+                              for doc in value])
+
+        # The number of documents containing a term
+        self.doc_freq = {term: len([doc_freq for doc_freq in index[term]])
+                         for term in index}
+
+        # The inverse document frequency log(|D| / doc_freq) of each term
+        self.inv_doc_freq = {term: math.log10(self.total_doc / self.doc_freq[term])
+                             for term in index}
+
+        # The size of each document vector
+        self.doc_vec_size = {doc: math.sqrt(sum([(index[term][doc] * self.inv_doc_freq[term]) ** 2
+                                                 for term in [terms for terms, docs in index.items()
+                                                              if doc in docs]]))
                              for doc in range(1, self.total_doc + 1)}
 
-        print(self.total_doc)
-        print(self.doc_vec_size)
+        # All the terms that appear in a document
+        self.terms_in_doc = {doc: {term for term in [terms for terms, docs in self.index.items()
+                                                     if doc in docs]}
+                             for doc in range(1, self.total_doc + 1)}
 
-    # Method performing retrieval for specified query
+        if term_weighting in ['tf', 'tfidf']:
+            self.term_freq = {term: sum([freq for freq in self.index[term].values()])
+                              for term in self.index}
+
+            # self.paice_model = {doc: 1
+            #                     for doc in range(1, self.total_doc + 1)}
+
     def forQuery(self, query):
-        return range(1, 11)
-
-    def calculate_tf_idf(self, doc, term):
         """
-        Get the term frequency (tf) of a specific term / word
+        Method performing retrieval for specified query
 
-        :param term: The term / word to calculate for
-        :param doc: The document ID
-        :return: The term frequency (tf) of the term / word
+        :param query: The query to process
+        :return: The top 10 most relevant documents to the query
         """
 
-        return self.index[term][doc] * self.inv_doc_freq[term]
-
-    def jaccard(self, d1, d2):
-        """
-        Compute similarity score for document pair
-
-        :param d1: First document
-        :param d2: Second document
-        :return: Similarity score
-        """
-
-        wds1 = set(d1)
-        wds2 = set(d2)
-
-        over = under = 0
-
-        for w in (wds1 | wds2):
-
-            if w in d1 and w in d2:
-                over += min(d1[w], d2[w])
-
-            wmax = 0
-
-            if w in d1:
-                wmax = d1[w]
-            if w in d2:
-                wmax = max(d2[w], wmax)
-
-            under += wmax
-
-        if under > 0:
-            return over / under
+        if self.term_weighting == 'binary':
+            return self.binary_scheme(query)
+        elif self.term_weighting == 'tf':
+            return self.tf_scheme(query)
         else:
-            return 0.0
+            return self.tfidf_scheme(query)
+
+    def binary_scheme(self, query):
+        """
+
+        :param query:
+        :return:
+        """
+
+        candidate_doc = {doc: len(set(query) & self.terms_in_doc[doc])
+                         for doc in self.terms_in_doc}
+
+        candidate_doc = sorted(candidate_doc.items(), key=itemgetter(1), reverse=True)
+
+        return [doc for doc, _ in candidate_doc][:10]
+
+    def tf_scheme(self, query):
+        """
+        The term frequency weighting scheme
+
+        :param query: The query to search
+        :return: The 10 most relevant document to the query
+        """
+
+        # Get all words that appear in a document, doc
+        # AND or OR the query and the all words
+        # Calculate Paice model
+
+        candidate_doc = []
+
+        sorted_query = dict(sorted(query.items(), key=itemgetter(1), reverse=True))
+
+        for term, freq in sorted_query.items():
+            if term in self.index:
+                doc_list = sorted(self.index[term].items(), key=itemgetter(1), reverse=True)
+                candidate_doc += [doc for doc, count in doc_list]
+
+        return [doc for doc, _ in Counter(candidate_doc).most_common(10)]
+
+    def tfidf_scheme(self, query):
+        """
+        The TFIDF weighting scheme
+
+        :param query: The query to search
+        :return: The 10 most relevant document to the query
+        """
+
+        # Vector space model
+        vec_space_model = {doc: sum([self.inv_doc_freq[term] * (self.term_freq[term] * self.index[term][doc])
+                                     for term in [terms for terms in query if terms in self.term_freq and terms in self.terms_in_doc[doc]]]) / self.doc_vec_size[doc]
+                           for doc in range(1, self.total_doc + 1)}
+
+        vec_space_model = dict(sorted(vec_space_model.items(), key=itemgetter(1), reverse=False))
+
+        print(vec_space_model)
+
+        return [doc for doc in vec_space_model.keys()][:10]
