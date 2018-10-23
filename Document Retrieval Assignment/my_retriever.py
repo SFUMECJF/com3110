@@ -12,40 +12,24 @@ class Retrieve:
     The class for Retriever
     """
 
-    # Create new Retrieve object storing index and termWeighting scheme
     def __init__(self, index, term_weighting):
+        """
+        Create new Retrieve object storing index and term weighting scheme
+
+        :param index: The index dictionary
+        :param term_weighting: The term weighting scheme, binary, tf or tfidf
+        """
+
         self.index = index
         self.term_weighting = term_weighting
 
         # The total number of documents in the collection |D|
-        self.total_doc = max([doc for value in index.values()
-                              for doc in value])
-
-        # The number of documents containing a term
-        self.doc_freq = {term: len([doc_freq for doc_freq in index[term]])
-                         for term in index}
-
-        # The inverse document frequency log(|D| / doc_freq) of each term
-        self.inv_doc_freq = {term: math.log10(self.total_doc / self.doc_freq[term])
-                             for term in index}
-
-        # The size of each document vector
-        self.doc_vec_size = {doc: math.sqrt(sum([(index[term][doc] * self.inv_doc_freq[term]) ** 2
-                                                 for term in [terms for terms, docs in index.items()
-                                                              if doc in docs]]))
-                             for doc in range(1, self.total_doc + 1)}
+        self.total_doc = max(doc for value in index.values() for doc in value)
 
         # All the terms that appear in a document
-        self.terms_in_doc = {doc: {term for term in [terms for terms, docs in self.index.items()
+        self.terms_in_doc = {doc: {term for term in [terms for terms, docs in index.items()
                                                      if doc in docs]}
                              for doc in range(1, self.total_doc + 1)}
-
-        if term_weighting in ['tf', 'tfidf']:
-            self.term_freq = {term: sum([freq for freq in self.index[term].values()])
-                              for term in self.index}
-
-            # self.paice_model = {doc: 1
-            #                     for doc in range(1, self.total_doc + 1)}
 
     def forQuery(self, query):
         """
@@ -55,26 +39,97 @@ class Retrieve:
         :return: The top 10 most relevant documents to the query
         """
 
+        candidate = self.get_candidate(query)
+
+        similarity = {}
+
         if self.term_weighting == 'binary':
-            return self.binary_scheme(query)
+            """
+            Binary weighting scheme
+
+            Term weight is either 0 or 1, easy implementation and weak result
+            """
+
+            for doc in candidate:
+                query_doc_product = 0
+                doc_vec_size = 0
+
+                for term in self.terms_in_doc[doc]:
+                    doc_vec_size += 1
+
+                    if term in query:
+                        query_doc_product += 1
+
+                similarity[doc] = query_doc_product / math.sqrt(doc_vec_size)
+
         elif self.term_weighting == 'tf':
-            return self.tf_scheme(query)
+            """
+            Term frequency weighting scheme
+
+            Term weight depends on its frequency in the specific document, for query,
+            the term weight depends on its frequency in the query as well
+            """
+
+            for doc in candidate:
+                query_doc_product = 0
+                doc_vec_size = 0
+
+                for term in self.terms_in_doc[doc]:
+                    doc_vec_size += self.index[term][doc] ** 2
+
+                    if term in query:
+                        query_doc_product += self.index[term][doc] * query[term]
+
+                similarity[doc] = query_doc_product / math.sqrt(doc_vec_size)
+
         else:
-            return self.tfidf_scheme(query)
+            """
+            TFIDF weighting scheme
 
-    def binary_scheme(self, query):
+            Term weight depends on the inverse document frequency (idf), and the
+            TFIDF (term frequency * inverse document frequency)
+            """
+
+            # The number of documents containing a term
+            doc_freq = {term: len([doc_freq for doc_freq in self.index[term]])
+                        for term in self.index}
+
+            for doc in candidate:
+                query_doc_product = 0
+                doc_vec_size = 0
+
+                for term in self.terms_in_doc[doc]:
+                    idf = math.log10(self.total_doc / doc_freq[term])
+                    tfidf = idf * self.index[term][doc]
+
+                    doc_vec_size += tfidf ** 2
+
+                    if term in query:
+                        query_doc_product += tfidf * query[term] * idf
+
+                similarity[doc] = query_doc_product / math.sqrt(doc_vec_size)
+
+        ranked_doc = sorted(similarity.items(), key=itemgetter(1), reverse=True)
+
+        return [x[0] for x in ranked_doc[:10]]
+
+    def get_candidate(self, query):
+        """
+        Get a list of candidate documents that are related to the query
+
+        :param query: The query to search for
+        :return: The list of documents that contain at least one same word with query
         """
 
-        :param query:
-        :return:
-        """
+        candidate_doc = {doc: score
+                         for doc in self.terms_in_doc
+                         for score in [len(set(query) & self.terms_in_doc[doc])]
+                         if score is not 0}
 
-        candidate_doc = {doc: len(set(query) & self.terms_in_doc[doc])
-                         for doc in self.terms_in_doc}
-
+        # Sort according to the candidate 'score'
         candidate_doc = sorted(candidate_doc.items(), key=itemgetter(1), reverse=True)
 
-        return [doc for doc, _ in candidate_doc][:10]
+        return [doc for doc, _ in candidate_doc]
 
     def tf_scheme(self, query):
         """
@@ -98,22 +153,3 @@ class Retrieve:
                 candidate_doc += [doc for doc, count in doc_list]
 
         return [doc for doc, _ in Counter(candidate_doc).most_common(10)]
-
-    def tfidf_scheme(self, query):
-        """
-        The TFIDF weighting scheme
-
-        :param query: The query to search
-        :return: The 10 most relevant document to the query
-        """
-
-        # Vector space model
-        vec_space_model = {doc: sum([self.inv_doc_freq[term] * (self.term_freq[term] * self.index[term][doc])
-                                     for term in [terms for terms in query if terms in self.term_freq and terms in self.terms_in_doc[doc]]]) / self.doc_vec_size[doc]
-                           for doc in range(1, self.total_doc + 1)}
-
-        vec_space_model = dict(sorted(vec_space_model.items(), key=itemgetter(1), reverse=False))
-
-        print(vec_space_model)
-
-        return [doc for doc in vec_space_model.keys()][:10]
