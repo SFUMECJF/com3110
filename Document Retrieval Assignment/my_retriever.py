@@ -70,12 +70,23 @@ class Retrieve:
             the term weight depends on its frequency in the query as well
             """
 
+            # candidate_doc = []
+            #
+            # sorted_query = dict(sorted(query.items(), key=itemgetter(1), reverse=True))
+            #
+            # for term, freq in sorted_query.items():
+            #     if term in self.index:
+            #         doc_list = sorted(self.index[term].items(), key=itemgetter(1), reverse=True)
+            #         candidate_doc += [doc for doc, count in doc_list] * freq
+            #
+            # return [doc[0] for doc in Counter(candidate_doc).most_common(10)]
+
             for doc in candidate:
                 query_doc_product = 0
                 doc_vec_size = 0
 
                 for term in self.terms_in_doc[doc]:
-                    doc_vec_size += self.index[term][doc] ** 2
+                    doc_vec_size += self.index[term][doc] ** 1.95
 
                     if term in query:
                         query_doc_product += self.index[term][doc] * query[term]
@@ -130,26 +141,3 @@ class Retrieve:
         candidate_doc = sorted(candidate_doc.items(), key=itemgetter(1), reverse=True)
 
         return [doc for doc, _ in candidate_doc]
-
-    def tf_scheme(self, query):
-        """
-        The term frequency weighting scheme
-
-        :param query: The query to search
-        :return: The 10 most relevant document to the query
-        """
-
-        # Get all words that appear in a document, doc
-        # AND or OR the query and the all words
-        # Calculate Paice model
-
-        candidate_doc = []
-
-        sorted_query = dict(sorted(query.items(), key=itemgetter(1), reverse=True))
-
-        for term, freq in sorted_query.items():
-            if term in self.index:
-                doc_list = sorted(self.index[term].items(), key=itemgetter(1), reverse=True)
-                candidate_doc += [doc for doc, count in doc_list]
-
-        return [doc for doc, _ in Counter(candidate_doc).most_common(10)]
