@@ -31,6 +31,11 @@ class Retrieve:
                                                      if doc in docs]}
                              for doc in range(1, self.total_doc + 1)}
 
+        if term_weighting == 'tfidf':
+            # The number of documents containing a term
+            doc_freq = {term: len([doc_freq for doc_freq in self.index[term]])
+                        for term in self.index}
+
     def forQuery(self, query):
         """
         Method performing retrieval for specified query
@@ -70,17 +75,6 @@ class Retrieve:
             the term weight depends on its frequency in the query as well
             """
 
-            # candidate_doc = []
-            #
-            # sorted_query = dict(sorted(query.items(), key=itemgetter(1), reverse=True))
-            #
-            # for term, freq in sorted_query.items():
-            #     if term in self.index:
-            #         doc_list = sorted(self.index[term].items(), key=itemgetter(1), reverse=True)
-            #         candidate_doc += [doc for doc, count in doc_list] * freq
-            #
-            # return [doc[0] for doc in Counter(candidate_doc).most_common(10)]
-
             for doc in candidate:
                 query_doc_product = 0
                 doc_vec_size = 0
@@ -101,16 +95,12 @@ class Retrieve:
             TFIDF (term frequency * inverse document frequency)
             """
 
-            # The number of documents containing a term
-            doc_freq = {term: len([doc_freq for doc_freq in self.index[term]])
-                        for term in self.index}
-
             for doc in candidate:
                 query_doc_product = 0
                 doc_vec_size = 0
 
                 for term in self.terms_in_doc[doc]:
-                    idf = math.log10(self.total_doc / doc_freq[term])
+                    idf = math.log10(self.total_doc / self.doc_freq[term])
                     tfidf = idf * self.index[term][doc]
 
                     doc_vec_size += tfidf ** 2
