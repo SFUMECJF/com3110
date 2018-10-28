@@ -2,7 +2,6 @@
 The retriever of Document Retrieval System
 """
 
-from collections import Counter
 from operator import itemgetter
 import math
 
@@ -31,10 +30,22 @@ class Retrieve:
                                                      if doc in docs]}
                              for doc in range(1, self.total_doc + 1)}
 
-        if term_weighting == 'tfidf':
+        if term_weighting == 'tf':
+            # The size of each document vector for TF, 1.95 gives better results
+            self.doc_vec_size = {doc: math.sqrt(sum(index[term][doc] ** 1.95
+                                                    for term in self.terms_in_doc[doc]))
+                                 for doc in range(1, self.total_doc + 1)}
+
+        elif term_weighting == 'tfidf':
             # The number of documents containing a term
-            doc_freq = {term: len([doc_freq for doc_freq in self.index[term]])
-                        for term in self.index}
+            self.doc_freq = {term: len(index[term]) for term in index}
+
+            # The TFIDF value of each term in each document
+            # Created for performance boost to prevent calculating the same values in the loop
+            self.term_tfidf_in_doc = \
+                {doc: {term: math.log(self.total_doc / self.doc_freq[term]) * index[term][doc]
+                       for term in terms}
+                 for doc, terms in self.terms_in_doc.items()}
 
     def forQuery(self, query):
         """
@@ -56,14 +67,9 @@ class Retrieve:
             """
 
             for doc in candidate:
-                query_doc_product = 0
-                doc_vec_size = 0
+                query_doc_product = sum(1 for term in query if term in self.terms_in_doc[doc])
 
-                for term in self.terms_in_doc[doc]:
-                    doc_vec_size += 1
-
-                    if term in query:
-                        query_doc_product += 1
+                doc_vec_size = len(self.terms_in_doc[doc])
 
                 similarity[doc] = query_doc_product / math.sqrt(doc_vec_size)
 
@@ -76,16 +82,12 @@ class Retrieve:
             """
 
             for doc in candidate:
-                query_doc_product = 0
-                doc_vec_size = 0
+                same_terms = query.keys() & self.terms_in_doc[doc]
 
-                for term in self.terms_in_doc[doc]:
-                    doc_vec_size += self.index[term][doc] ** 1.95
+                query_doc_product = sum(self.index[term][doc] * query[term]
+                                        for term in same_terms)
 
-                    if term in query:
-                        query_doc_product += self.index[term][doc] * query[term]
-
-                similarity[doc] = query_doc_product / math.sqrt(doc_vec_size)
+                similarity[doc] = query_doc_product / self.doc_vec_size[doc]
 
         else:
             """
@@ -95,20 +97,21 @@ class Retrieve:
             TFIDF (term frequency * inverse document frequency)
             """
 
+            query_tfidf = {term: query[term] * math.log(self.total_doc / self.doc_freq[term])
+                           for term in query
+                           if term in self.index}
+
             for doc in candidate:
-                query_doc_product = 0
-                doc_vec_size = 0
+                same_terms = query.keys() & self.terms_in_doc[doc]
 
-                for term in self.terms_in_doc[doc]:
-                    idf = math.log10(self.total_doc / self.doc_freq[term])
-                    tfidf = idf * self.index[term][doc]
+                # query[term] * tfidf * idf
+                query_doc_product = sum(query_tfidf[term] * self.term_tfidf_in_doc[doc][term]
+                                        for term in same_terms)
 
-                    doc_vec_size += tfidf ** 2
+                doc_vec_size = math.sqrt(sum(tfidf ** 2
+                                             for tfidf in self.term_tfidf_in_doc[doc].values()))
 
-                    if term in query:
-                        query_doc_product += tfidf * query[term] * idf
-
-                similarity[doc] = query_doc_product / math.sqrt(doc_vec_size)
+                similarity[doc] = query_doc_product / doc_vec_size
 
         ranked_doc = sorted(similarity.items(), key=itemgetter(1), reverse=True)
 
@@ -122,12 +125,11 @@ class Retrieve:
         :return: The list of documents that contain at least one same word with query
         """
 
-        candidate_doc = {doc: score
-                         for doc in self.terms_in_doc
-                         for score in [len(set(query) & self.terms_in_doc[doc])]
-                         if score is not 0}
+        candidate_docs = set()
 
-        # Sort according to the candidate 'score'
-        candidate_doc = sorted(candidate_doc.items(), key=itemgetter(1), reverse=True)
+        # Get all documents that contain more than one term from query
+        for term in query:
+            if term in self.index:
+                candidate_docs.update(set(self.index[term].keys()))
 
-        return [doc for doc, _ in candidate_doc]
+        return candidate_docs
