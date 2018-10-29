@@ -23,18 +23,23 @@ class Retrieve:
         self.term_weighting = term_weighting
 
         # The total number of documents in the collection |D|
-        self.total_doc = max(doc for value in index.values() for doc in value)
+        self.total_doc = max(doc for docs in index.values() for doc in docs)
 
-        # All the terms that appear in a document
-        self.terms_in_doc = {doc: {term for term in [terms for terms, docs in index.items()
-                                                     if doc in docs]}
+        # All the terms that appear in a document (doc: set() for better performance)
+        self.terms_in_doc = {doc: {terms
+                                   for terms, docs in index.items()
+                                   if doc in docs}
                              for doc in range(1, self.total_doc + 1)}
 
         if term_weighting == 'tf':
             # The size of each document vector for TF, 1.95 gives better results
-            self.doc_vec_size = {doc: math.sqrt(sum(index[term][doc] ** 1.95
-                                                    for term in self.terms_in_doc[doc]))
-                                 for doc in range(1, self.total_doc + 1)}
+            self.doc_vec_size = dict.fromkeys(self.terms_in_doc, 0)
+
+            for doc, terms in self.terms_in_doc.items():
+                for term in terms:
+                    self.doc_vec_size[doc] += index[term][doc] ** 1.95
+
+                self.doc_vec_size[doc] = math.sqrt(self.doc_vec_size[doc])
 
         elif term_weighting == 'tfidf':
             # The number of documents containing a term
@@ -59,59 +64,67 @@ class Retrieve:
 
         similarity = {}
 
-        if self.term_weighting == 'binary':
-            """
-            Binary weighting scheme
-
-            Term weight is either 0 or 1, easy implementation and weak result
-            """
-
-            for doc in candidate:
-                query_doc_product = sum(1 for term in query if term in self.terms_in_doc[doc])
-
-                doc_vec_size = len(self.terms_in_doc[doc])
-
-                similarity[doc] = query_doc_product / math.sqrt(doc_vec_size)
-
-        elif self.term_weighting == 'tf':
-            """
-            Term frequency weighting scheme
-
-            Term weight depends on its frequency in the specific document, for query,
-            the term weight depends on its frequency in the query as well
-            """
-
-            for doc in candidate:
-                same_terms = query.keys() & self.terms_in_doc[doc]
-
-                query_doc_product = sum(self.index[term][doc] * query[term]
-                                        for term in same_terms)
-
-                similarity[doc] = query_doc_product / self.doc_vec_size[doc]
-
-        else:
-            """
-            TFIDF weighting scheme
-
-            Term weight depends on the inverse document frequency (idf), and the
-            TFIDF (term frequency * inverse document frequency)
-            """
-
+        if self.term_weighting == 'tfidf':
+            # Prevent repeating the same calculation for every candidate document
             query_tfidf = {term: query[term] * math.log(self.total_doc / self.doc_freq[term])
                            for term in query
                            if term in self.index}
 
-            for doc in candidate:
-                same_terms = query.keys() & self.terms_in_doc[doc]
+        for doc in candidate:
+            # The same terms in query and candidate document
+            same_terms = query.keys() & self.terms_in_doc[doc]
 
-                # query[term] * tfidf * idf
-                query_doc_product = sum(query_tfidf[term] * self.term_tfidf_in_doc[doc][term]
-                                        for term in same_terms)
+            # The numerator of vector space model
+            query_doc_product = 0
 
-                doc_vec_size = math.sqrt(sum(tfidf ** 2
-                                             for tfidf in self.term_tfidf_in_doc[doc].values()))
+            # The denominator (right one) of vector space model
+            doc_vec_size = 0
 
-                similarity[doc] = query_doc_product / doc_vec_size
+            if self.term_weighting == 'binary':
+                """
+                Binary weighting scheme
+
+                Term weight is either 0 or 1, easy implementation and weak result
+                """
+
+                # The number of terms that appear in both query and candidate document
+                query_doc_product = len(same_terms)
+
+                # The number of terms in the candidate document
+                doc_vec_size = len(self.terms_in_doc[doc])
+
+                similarity[doc] = query_doc_product / math.sqrt(doc_vec_size)
+
+            elif self.term_weighting == 'tf':
+                """
+                Term frequency weighting scheme
+
+                Term weight depends on its frequency in the specific document, for query,
+                the term weight depends on its frequency in the query as well
+                """
+
+                for term in same_terms:
+                    # TF in query * TF in the candidate document
+                    query_doc_product += query[term] * self.index[term][doc]
+
+                similarity[doc] = query_doc_product / self.doc_vec_size[doc]
+
+            else:
+                """
+                TFIDF weighting scheme
+
+                Term weight depends on the inverse document frequency (idf), the
+                TFIDF (term frequency * inverse document frequency), and query frequency
+                """
+
+                for term in same_terms:
+                    # TFIDF in query * TFIDF in the candidate document
+                    query_doc_product += query_tfidf[term] * self.term_tfidf_in_doc[doc][term]
+
+                for tfidf in self.term_tfidf_in_doc[doc].values():
+                    doc_vec_size += tfidf ** 2
+
+                similarity[doc] = query_doc_product / math.sqrt(doc_vec_size)
 
         ranked_doc = sorted(similarity.items(), key=itemgetter(1), reverse=True)
 
