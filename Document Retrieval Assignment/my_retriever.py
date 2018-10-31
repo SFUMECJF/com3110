@@ -2,7 +2,6 @@
 The retriever of Document Retrieval System
 """
 
-from operator import itemgetter
 import math
 
 
@@ -46,7 +45,7 @@ class Retrieve:
             self.doc_freq = {term: len(index[term]) for term in index}
 
             # The TFIDF value of each term in each document
-            # Created for performance boost to prevent calculating the same values in the loop
+            # Prevent calculating the same values in the loop, reduce retrieval time
             self.term_tfidf_in_doc = \
                 {doc: {term: math.log(self.total_doc / self.doc_freq[term]) * index[term][doc]
                        for term in terms}
@@ -126,7 +125,8 @@ class Retrieve:
 
                 similarity[doc] = query_doc_product / math.sqrt(doc_vec_size)
 
-        ranked_doc = sorted(similarity.items(), key=itemgetter(1), reverse=True)
+        # Sort documents by similarity scores in descending order
+        ranked_doc = sorted(similarity.items(), key=lambda x: x[1], reverse=True)
 
         return [x[0] for x in ranked_doc[:10]]
 
